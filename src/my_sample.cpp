@@ -40,6 +40,7 @@ public:
   mtc::Task boxTask();
   mtc::Task cylinderTask();
 
+  
 private:
   // Compose an MTC task from a series of stages.
   mtc::Task task_;
@@ -49,6 +50,8 @@ private:
 My_tutorial::My_tutorial(const rclcpp::NodeOptions& options)
   : node_{ std::make_shared<rclcpp::Node>("my_tutorial_node", options) }
 {
+
+
 }
 
 rclcpp::node_interfaces::NodeBaseInterface::SharedPtr My_tutorial::getNodeBaseInterface()
@@ -85,11 +88,11 @@ void My_tutorial::setupPlanningScene()
     object4.header.frame_id = "world";
     object4.primitives.resize(1);
     object4.primitives[0].type = shape_msgs::msg::SolidPrimitive::CYLINDER;
-    object4.primitives[0].dimensions = { 0.3, 0.02 };
+    object4.primitives[0].dimensions = { 0.6, 0.02 };
 
     geometry_msgs::msg::Pose pose4;
     pose4.position.x = 0.4;
-    pose4.position.y = 0.25;
+    pose4.position.y = -0.3;
     pose4.position.z = 0.3;
     pose4.orientation.w = 1.0;
     object4.pose = pose4;
@@ -111,8 +114,8 @@ void My_tutorial::setupPlanningScene()
     object2.primitives[0].dimensions[object2.primitives[0].BOX_Z] = 0.05;
 
     object2.primitive_poses.resize(1);
-    object2.primitive_poses[0].position.x = 0.2;
-    object2.primitive_poses[0].position.y = 0.2;
+    object2.primitive_poses[0].position.x = 0.5;
+    object2.primitive_poses[0].position.y = -0.2;
     object2.primitive_poses[0].position.z = 0.2;//-0.026;
     object2.primitive_poses[0].orientation.w = 1.0;
     // object2.pose = pose2;
@@ -153,26 +156,26 @@ void My_tutorial::setupPlanningScene()
 
 void My_tutorial::doTask()
 {
-//   task_ = setSceneTask();//task;
-//   try{
-//     task_.init();
-//   }
-//   catch (mtc::InitStageException& e){
-//     RCLCPP_ERROR_STREAM(LOGGER, e);
-//     return;
-//   }
-//   if (!task_.plan(5)){
-//     RCLCPP_ERROR_STREAM(LOGGER, "Task planning failed");
-//     return;
-//   }
-//   task_.introspection().publishSolution(*task_.solutions().front());
-//   auto result = task_.execute(*task_.solutions().front());
-//   if (result.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS){
-//     RCLCPP_ERROR_STREAM(LOGGER, "Task execution failed");
-//     return;
-//   }
+  task_ = setSceneTask();//task;
+  try{
+    task_.init();
+  }
+  catch (mtc::InitStageException& e){
+    RCLCPP_ERROR_STREAM(LOGGER, e);
+    return;
+  }
+  if (!task_.plan(5)){
+    RCLCPP_ERROR_STREAM(LOGGER, "Task planning failed");
+    return;
+  }
+  task_.introspection().publishSolution(*task_.solutions().front());
+  auto result = task_.execute(*task_.solutions().front());
+  if (result.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS){
+    RCLCPP_ERROR_STREAM(LOGGER, "Task execution failed");
+    return;
+  }
 
-  task_ = boxTask();//cylinderTask();//task;
+  task_ = cylinderTask();//task;
   try{
     task_.init();
   }
@@ -187,6 +190,25 @@ void My_tutorial::doTask()
   task_.introspection().publishSolution(*task_.solutions().front());
   auto result1 = task_.execute(*task_.solutions().front());
   if (result1.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS){
+    RCLCPP_ERROR_STREAM(LOGGER, "Task execution failed");
+    return;
+  }
+
+  task_ = boxTask();//cylinderTask();//task;
+  try{
+    task_.init();
+  }
+  catch (mtc::InitStageException& e){
+    RCLCPP_ERROR_STREAM(LOGGER, e);
+    return;
+  }
+  if (!task_.plan(5)){
+    RCLCPP_ERROR_STREAM(LOGGER, "Task planning failed");
+    return;
+  }
+  task_.introspection().publishSolution(*task_.solutions().front());
+  auto result2 = task_.execute(*task_.solutions().front());
+  if (result2.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS){
     RCLCPP_ERROR_STREAM(LOGGER, "Task execution failed");
     return;
   }
@@ -967,7 +989,7 @@ mtc::Task My_tutorial::boxTask()
       // Set retreat direction
       geometry_msgs::msg::Vector3Stamped vec;
       vec.header.frame_id = "world";
-      vec.vector.x = -0.5;
+      vec.vector.z = 0.1;
       stage->setDirection(vec);
       place->insert(std::move(stage));
     }
