@@ -35,6 +35,8 @@ public:
 
   void doTask();
 
+  void addBox();
+  void addCylinder();
   void setupPlanningScene();
   mtc::Task pickPlaceTask();
   mtc::Task setSceneTask();
@@ -59,6 +61,7 @@ rclcpp::node_interfaces::NodeBaseInterface::SharedPtr My_tutorial::getNodeBaseIn
   return node_->get_node_base_interface();
 }
 
+
 void My_tutorial::setupPlanningScene()
 {
     // Initialize the Planning Scene Interface
@@ -82,47 +85,46 @@ void My_tutorial::setupPlanningScene()
 
 
 
-    moveit_msgs::msg::CollisionObject object4;
-    object4.id = "cylinder2";
-    object4.header.frame_id = "world";
-    object4.primitives.resize(1);
-    object4.primitives[0].type = shape_msgs::msg::SolidPrimitive::CYLINDER;
-    object4.primitives[0].dimensions = { 0.6, 0.02 };
+    // moveit_msgs::msg::CollisionObject object4;
+    // object4.id = "cylinder2";
+    // object4.header.frame_id = "world";
+    // object4.primitives.resize(1);
+    // object4.primitives[0].type = shape_msgs::msg::SolidPrimitive::CYLINDER;
+    // object4.primitives[0].dimensions = { 0.6, 0.02 };
 
-    geometry_msgs::msg::Pose pose4;
-    pose4.position.x = 0.4;
-    pose4.position.y = -0.3;
-    pose4.position.z = 0.3;
-    pose4.orientation.w = 1.0;
-    object4.pose = pose4;
-    psi.applyCollisionObject(object4);
+    // geometry_msgs::msg::Pose pose4;
+    // pose4.position.x = 0.4;
+    // pose4.position.y = -0.3;
+    // pose4.position.z = 0.3;
+    // pose4.orientation.w = 1.0;
+    // object4.pose = pose4;
+    // psi.applyCollisionObject(object4);
 
 
 
-    // BOX
-    moveit_msgs::msg::CollisionObject object2;
-    object2.id = "box";
-    object2.header.frame_id = "world";
-    object2.primitives.resize(1);
+    // // BOX
+    // moveit_msgs::msg::CollisionObject object2;
+    // object2.id = "box";
+    // object2.header.frame_id = "world";
+    // object2.primitives.resize(1);
 
-    // Define the size of the box in meters
-    object2.primitives[0].type = shape_msgs::msg::SolidPrimitive::BOX;//object2.primitives[0].BOX;
-    object2.primitives[0].dimensions.resize(3);
-    object2.primitives[0].dimensions[object2.primitives[0].BOX_X] = 0.05;
-    object2.primitives[0].dimensions[object2.primitives[0].BOX_Y] = 0.05;
-    object2.primitives[0].dimensions[object2.primitives[0].BOX_Z] = 0.05;
+    // // Define the size of the box in meters
+    // object2.primitives[0].type = shape_msgs::msg::SolidPrimitive::BOX;//object2.primitives[0].BOX;
+    // object2.primitives[0].dimensions.resize(3);
+    // object2.primitives[0].dimensions[object2.primitives[0].BOX_X] = 0.05;
+    // object2.primitives[0].dimensions[object2.primitives[0].BOX_Y] = 0.05;
+    // object2.primitives[0].dimensions[object2.primitives[0].BOX_Z] = 0.05;
 
-    object2.primitive_poses.resize(1);
-    object2.primitive_poses[0].position.x = 0.5;
-    object2.primitive_poses[0].position.y = -0.2;
-    object2.primitive_poses[0].position.z = 0.2;//-0.026;
-    object2.primitive_poses[0].orientation.w = 1.0;
-    // object2.pose = pose2;
-    object2.operation = object2.ADD;
+    // object2.primitive_poses.resize(1);
+    // object2.primitive_poses[0].position.x = 0.5;
+    // object2.primitive_poses[0].position.y = -0.2;
+    // object2.primitive_poses[0].position.z = 0.2;//-0.026;
+    // object2.primitive_poses[0].orientation.w = 1.0;
+    // // object2.pose = pose2;
+    // object2.operation = object2.ADD;
 
-    // Apply the table collision object
-    psi.applyCollisionObject(object2);
-
+    // // Apply the table collision object
+    // psi.applyCollisionObject(object2);
 
 
     // Table
@@ -153,6 +155,64 @@ void My_tutorial::setupPlanningScene()
   
 }   
 
+void My_tutorial::addBox()
+{
+    // Initialize the Planning Scene Interface
+    moveit::planning_interface::PlanningSceneInterface psi;
+  
+    // BOX
+    moveit_msgs::msg::CollisionObject object2;
+    object2.id = "box";
+    object2.header.frame_id = "world";
+    object2.primitives.resize(1);
+
+    // Define the size of the box in meters
+    object2.primitives[0].type = shape_msgs::msg::SolidPrimitive::BOX;//object2.primitives[0].BOX;
+    object2.primitives[0].dimensions.resize(3);
+    object2.primitives[0].dimensions[object2.primitives[0].BOX_X] = 0.05;
+    object2.primitives[0].dimensions[object2.primitives[0].BOX_Y] = 0.05;
+    object2.primitives[0].dimensions[object2.primitives[0].BOX_Z] = 0.05;
+
+    object2.primitive_poses.resize(1);
+    object2.primitive_poses[0].position.x = 0.5;
+    object2.primitive_poses[0].position.y = -0.2;
+    object2.primitive_poses[0].position.z = 0.2;//-0.026;
+    object2.primitive_poses[0].orientation.w = 1.0;
+    // object2.pose = pose2;
+    object2.operation = object2.ADD;
+
+    // Apply the table collision object
+    psi.applyCollisionObject(object2);
+  
+}   
+
+void My_tutorial::addCylinder()
+{
+    // Initialize the Planning Scene Interface
+    moveit::planning_interface::PlanningSceneInterface psi;
+  
+    moveit_msgs::msg::CollisionObject object4;
+    object4.id = "cylinder2";
+    object4.header.frame_id = "world";
+    object4.primitives.resize(1);
+    object4.primitives[0].type = shape_msgs::msg::SolidPrimitive::CYLINDER;
+    object4.primitives[0].dimensions = { 0.6, 0.02 };
+
+    geometry_msgs::msg::Pose pose4;
+    pose4.position.x = 0.4;
+    pose4.position.y = -0.3;
+    pose4.position.z = 0.3;
+    pose4.orientation.w = 1.0;
+    object4.pose = pose4;
+    psi.applyCollisionObject(object4);
+
+
+    // Apply the table collision object
+    psi.applyCollisionObject(object4);
+  
+}   
+
+
 void My_tutorial::doTask()
 {
   task_ = setSceneTask();//task;
@@ -174,7 +234,7 @@ void My_tutorial::doTask()
     return;
   }
 
-  task_ = alternativesTask();//mergerTask();//cylinderTask();//task;
+  task_ = mergerTask();//cylinderTask();//task;
   try{
     task_.init();
   }
@@ -1307,7 +1367,7 @@ int main(int argc, char** argv)
   options.automatically_declare_parameters_from_overrides(true);
 
   auto mtc_task_node = std::make_shared<My_tutorial>(options);
-  mtc_task_node->setupPlanningScene();
+  // mtc_task_node->setupPlanningScene();
   rclcpp::executors::MultiThreadedExecutor executor;
 
   auto spin_thread = std::make_unique<std::thread>([&executor, &mtc_task_node]() {
@@ -1318,9 +1378,13 @@ int main(int argc, char** argv)
 
   std::cout << "STARTING TASKS\n\n";
 
-//   mtc_task_node->setSceneTask();
+  //   mtc_task_node->setSceneTask();
+  mtc_task_node->setupPlanningScene();
+  mtc_task_node->addBox();
   mtc_task_node->doTask();
-//   mtc_task_node->doTask(mtc_task_node->pickPlaceTask());
+  mtc_task_node->addCylinder();
+
+  mtc_task_node->doTask();
 
   spin_thread->join();
   rclcpp::shutdown();
