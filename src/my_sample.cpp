@@ -234,7 +234,7 @@ void My_tutorial::doTask()
     return;
   }
 
-  task_ = mergerTask();//cylinderTask();//task;
+  task_ = cylinderTask();//task;
   try{
     task_.init();
   }
