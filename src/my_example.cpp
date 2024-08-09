@@ -14,8 +14,8 @@
 class CustomMtcPipeline : public rclcpp::Node {
 
     public:
-        CustomMtcPipeline()
-        : Node ("my_example"){
+        CustomMtcPipeline(const rclcpp::NodeOptions& options)
+        : Node ("my_example",options){
 
         }
 
@@ -163,41 +163,41 @@ class CustomMtcPipeline : public rclcpp::Node {
             task.add(std::move(move_relative_with_cartesian_planner_stage));
 
 
-        // // Move To allows us to move a planning group to a pre-defined or specified RobotState : pre-defined states can be found in the SRDF
-        // move_to_ready_stage = std::make_unique<moveit::task_constructor::stages::MoveTo>("MoveTo predefined position (ready pose)", sampling_planner);
-        //     move_to_ready_stage->setGroup(arm_group_name);
-        //     move_to_ready_stage->setGoal("ready");
-        //     move_to_ready_stage->setIKFrame(hand_frame);
-        //     // move_to_ready_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT,{ "eef", "group", "ik_frame" });
+        // Move To allows us to move a planning group to a pre-defined or specified RobotState : pre-defined states can be found in the SRDF
+        move_to_ready_stage = std::make_unique<moveit::task_constructor::stages::MoveTo>("MoveTo predefined position (ready pose)", sampling_planner);
+            move_to_ready_stage->setGroup(arm_group_name);
+            move_to_ready_stage->setGoal("ready");
+            move_to_ready_stage->setIKFrame(hand_frame);
+            // move_to_ready_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT,{ "eef", "group", "ik_frame" });
 
-        //     task.add(std::move(move_to_ready_stage));
+            task.add(std::move(move_to_ready_stage));
 
 
 
-        // // Move Relative stage but with a different planner
-        // auto move_relative_with_sampling_planner_stage =  std::make_unique<moveit::task_constructor::stages::MoveRelative>("MoveRelative with sampling planner", cartesian_planner );
-        //     //set properties
-        //     move_relative_with_sampling_planner_stage->properties().set("marker_ns", "approach_object");
-        //     move_relative_with_sampling_planner_stage->properties().set("link", hand_frame);
-        //     move_relative_with_sampling_planner_stage->setMinMaxDistance(0.1, 0.15);
+        // Move Relative stage but with a different planner
+        auto move_relative_with_sampling_planner_stage =  std::make_unique<moveit::task_constructor::stages::MoveRelative>("MoveRelative with sampling planner", sampling_planner );
+            //set properties
+            move_relative_with_sampling_planner_stage->properties().set("marker_ns", "approach_object");
+            move_relative_with_sampling_planner_stage->properties().set("link", hand_frame);
+            move_relative_with_sampling_planner_stage->setMinMaxDistance(0.1, 0.15);
             
-        //     // Inherent properties of chioce from parent stage/task
-        //     move_relative_with_sampling_planner_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT, { "group" });
+            // Inherent properties of chioce from parent stage/task
+            move_relative_with_sampling_planner_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT, { "group" });
 
 
-        //     // move in a specified transformation wrt to a given frame
-        //     geometry_msgs::msg::Vector3Stamped vec_sampling;
-        //     vec_sampling.header.frame_id = hand_frame;
-        //     vec_sampling.vector.x = -2.0;
-        //     move_relative_with_sampling_planner_stage->setDirection(vec_sampling);
-        //     task.add(std::move(move_relative_with_sampling_planner_stage));
+            // move in a specified transformation wrt to a given frame
+            geometry_msgs::msg::Vector3Stamped vec_sampling;
+            vec_sampling.header.frame_id = hand_frame;
+            vec_sampling.vector.x = -2.0;
+            move_relative_with_sampling_planner_stage->setDirection(vec_sampling);
+            task.add(std::move(move_relative_with_sampling_planner_stage));
 
 
-        // // Move To allows us to move a planning group to a pre-defined or specified RobotState : pre-defined states can be found in the SRDF
-        // move_to_ready_stage = std::make_unique<moveit::task_constructor::stages::MoveTo>("MoveTo predefined position (ready pose)", cartesian_planner);
-        //     move_to_ready_stage->setGroup(arm_group_name);
-        //     move_to_ready_stage->setGoal("ready");
-        //     task.add(std::move(move_to_ready_stage));
+        // Move To allows us to move a planning group to a pre-defined or specified RobotState : pre-defined states can be found in the SRDF
+        move_to_ready_stage = std::make_unique<moveit::task_constructor::stages::MoveTo>("MoveTo predefined position (ready pose)", sampling_planner);
+            move_to_ready_stage->setGroup(arm_group_name);
+            move_to_ready_stage->setGoal("ready");
+            task.add(std::move(move_to_ready_stage));
 
         // // Move back to initial state
         // auto return_stage = std::make_unique<moveit::task_constructor::stages::Connect>("move to start",
@@ -340,11 +340,15 @@ class CustomMtcPipeline : public rclcpp::Node {
 int main(int argc, char** argv){
     rclcpp::init(argc, argv);
 
-    std::shared_ptr<CustomMtcPipeline> mtc_node = std::make_shared<CustomMtcPipeline>();
+    rclcpp::NodeOptions options;
+    options.automatically_declare_parameters_from_overrides(true);
+
+
+    std::shared_ptr<CustomMtcPipeline> mtc_node = std::make_shared<CustomMtcPipeline>(options);
     mtc_node->addTable();
     mtc_node->addCylinder();
-    // mtc_node->doTask(mtc_node->moveRelativeStageTask());
-    mtc_node->doTask(mtc_node->mergerTask());
+    mtc_node->doTask(mtc_node->moveRelativeStageTask());
+    // mtc_node->doTask(mtc_node->mergerTask());
 
     rclcpp::spin(mtc_node);
     rclcpp::shutdown();
