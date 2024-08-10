@@ -6,18 +6,24 @@
 #include <moveit/task_constructor/task.h>
 #include <moveit/task_constructor/stages.h>
 #include <moveit/task_constructor/solvers.h>
+#include <moveit/task_constructor/cost_terms.h>
 
 #include <moveit/planning_scene/planning_scene.h>
 
-
+static const rclcpp::Logger LOGGER = rclcpp::get_logger("my_example");
 
 class CustomMtcPipeline : public rclcpp::Node {
 
     public:
-        CustomMtcPipeline(const rclcpp::NodeOptions& options)
-        : Node ("my_example",options){
+    CustomMtcPipeline(const rclcpp::NodeOptions& options)
+    : Node ("my_example",options){
 
-        }
+    }
+
+    rclcpp::node_interfaces::NodeBaseInterface::SharedPtr getNodeBaseInterface()
+    {
+    return this->get_node_base_interface();
+    }
 
 
     void addTable(){
@@ -78,12 +84,12 @@ class CustomMtcPipeline : public rclcpp::Node {
 
 
     /**  Task flow :
-    *      Current stage
-    *      MoveTo ready position
-    *      MoveRelative with Cartesian planner : end eff moves back on it's x axis by 2 units
-    *      MoveTo ready position
-    *      MoveRelative with Sampling planner : end eff moves back on it's x axis by 2 units
-    *      MoveTo ready position
+    *     1. Current stage
+    *     2. MoveTo ready position
+    *     3. MoveRelative with Cartesian planner : end eff moves back on it's x axis by 2 units
+    *     4. MoveTo ready position
+    *     5. MoveRelative with Sampling planner : end eff moves back on it's x axis by 2 units
+    *     6. MoveTo ready position
     * 
     *   Observations :
     *      Notice how the sampling planner (using RRT* from OMPL backend) behaves compared to the cartesian planner
@@ -92,7 +98,7 @@ class CustomMtcPipeline : public rclcpp::Node {
     */
     moveit::task_constructor::Task moveRelativeStageTask(){
         
-        //Relevant groups and frames
+        // Relevant groups and frames
         const auto& arm_group_name = "panda_arm";
         const auto& hand_frame = "panda_hand";
         const auto& hand_group_name = "hand";
@@ -103,7 +109,8 @@ class CustomMtcPipeline : public rclcpp::Node {
         task.setName("Sample MoveTo task");
         
         
-        //add propoerties : These are like variables we can add to the task, can be anything. Some stages expect some properties to be given, such as 'group' for moveRelative
+        // Add propoerties : These are like variables we can add to the task, can be anything. Some stages expect some properties to be given, such as 'group' for moveRelative
+        // In this example, we specify ik Frame and hand group specifically in the stage and not inherit it. But the 'group' for move relative is specified to be taken from task as an example
         task.setProperty("group", arm_group_name);
         task.setProperty("eef", hand_group_name);
         task.setProperty("ik_frame", hand_frame);
@@ -123,100 +130,71 @@ class CustomMtcPipeline : public rclcpp::Node {
 
 
 
-        // Current stage : This is the current state of the robot and scene - this is a generator stage
+        // 1. Current stage : This is the current state of the robot and scene - this is a generator stage
         auto current_stage = std::make_unique<moveit::task_constructor::stages::CurrentState>("current");
-            task.add(std::move(current_stage));
-            // Pointer to the currrent state
-            moveit::task_constructor::Stage* current_state_ptr = current_stage.get(); 
+        task.add(std::move(current_stage));
 
-
-
-        // MoveTo Stage allows us to move a planning group to a pre-defined or specified RobotState : pre-defined states can be found in the SRDF
+        // 2. MoveTo Stage allows us to move a planning group to a pre-defined or specified RobotState : pre-defined states can be found in the SRDF
         auto move_to_ready_stage = std::make_unique<moveit::task_constructor::stages::MoveTo>("MoveTo predefined position (ready pose)", sampling_planner);
             move_to_ready_stage->setGroup(arm_group_name);
             move_to_ready_stage->setGoal("ready"); // SRDF has a 'ready' state defined
-            move_to_ready_stage->setTimeout(10);
+            move_to_ready_stage->setTimeout(10);   // Default timeout is 1 for most stages, but we can adjust it if needed
             // move_to_ready_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT,{ "eef", "group", "ik_frame" });
-            task.add(std::move(move_to_ready_stage));
+        task.add(std::move(move_to_ready_stage));
 
 
-        // MoveRelative stage : is a propogator stage that passes on the information to adjecent stages
-        // Also moves the robot frame sepcified relative to it's current position/frame by a given value and orientation
+        // 3. MoveRelative stage : moves the robot relative to the specified frame by a transformation, in a manner computed by the chosen planner
         auto move_relative_with_cartesian_planner_stage =  std::make_unique<moveit::task_constructor::stages::MoveRelative>("MoveRelative with cartesian planner", cartesian_planner );
             //set properties
-            move_relative_with_cartesian_planner_stage->properties().set("marker_ns", "approach_object");
-            move_relative_with_cartesian_planner_stage->properties().set("link", hand_frame);
-            move_relative_with_cartesian_planner_stage->setMinMaxDistance(0.1, 0.15);
-
+            move_relative_with_cartesian_planner_stage->properties().set("marker_ns", "approach_object"); // namespace for marker arrow in Rviz - viz only
+            move_relative_with_cartesian_planner_stage->properties().set("link", hand_frame);   // The moverelative is performed on this frame/link
+             // Only Move Relative in specified direction that are within this min/max limit
+             // If it cannot complete specified distance, it will do the most it can within the min limit or throw an error if cannot even move the min value
+            move_relative_with_cartesian_planner_stage->setMinMaxDistance(0.01, 0.3);          
             
-            // Inherent properties of chioce from parent stage/task
-            // move_relative_with_cartesian_planner_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT,{ "eef", "group", "ik_frame" });
+            // Inherit required properties from parent stage/task
             move_relative_with_cartesian_planner_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT, { "group" });
-            // move_relative_with_cartesian_planner_stage->setGroup(arm_group_name); - this also works if we do not want to inherit the 'group' property from parent stage
-
+            // move_relative_with_cartesian_planner_stage->setGroup(arm_group_name); - this also works if we do not want to inherit the 'group' property from parent stage and set it directly
 
             // move in a specified transformation wrt to a given frame
             geometry_msgs::msg::Vector3Stamped vec_cartesian;
             vec_cartesian.header.frame_id = hand_frame;
             vec_cartesian.vector.x = -2.0;
             move_relative_with_cartesian_planner_stage->setDirection(vec_cartesian);
-            task.add(std::move(move_relative_with_cartesian_planner_stage));
+        task.add(std::move(move_relative_with_cartesian_planner_stage));
 
 
-        // Move To allows us to move a planning group to a pre-defined or specified RobotState : pre-defined states can be found in the SRDF
+        // 4. Move To allows us to move a planning group to a pre-defined or specified RobotState : pre-defined states can be found in the SRDF
         move_to_ready_stage = std::make_unique<moveit::task_constructor::stages::MoveTo>("MoveTo predefined position (ready pose)", sampling_planner);
             move_to_ready_stage->setGroup(arm_group_name);
             move_to_ready_stage->setGoal("ready");
             move_to_ready_stage->setIKFrame(hand_frame);
             // move_to_ready_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT,{ "eef", "group", "ik_frame" });
-
-            task.add(std::move(move_to_ready_stage));
-
+        task.add(std::move(move_to_ready_stage));
 
 
-        // Move Relative stage but with a different planner
+        // 5. Move Relative stage but with a different planner
         auto move_relative_with_sampling_planner_stage =  std::make_unique<moveit::task_constructor::stages::MoveRelative>("MoveRelative with sampling planner", sampling_planner );
             //set properties
             move_relative_with_sampling_planner_stage->properties().set("marker_ns", "approach_object");
             move_relative_with_sampling_planner_stage->properties().set("link", hand_frame);
-            move_relative_with_sampling_planner_stage->setMinMaxDistance(0.1, 0.15);
-            
+            move_relative_with_sampling_planner_stage->setMinMaxDistance(0.01, 0.3);
             // Inherent properties of chioce from parent stage/task
             move_relative_with_sampling_planner_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT, { "group" });
-
 
             // move in a specified transformation wrt to a given frame
             geometry_msgs::msg::Vector3Stamped vec_sampling;
             vec_sampling.header.frame_id = hand_frame;
             vec_sampling.vector.x = -2.0;
             move_relative_with_sampling_planner_stage->setDirection(vec_sampling);
-            task.add(std::move(move_relative_with_sampling_planner_stage));
+        task.add(std::move(move_relative_with_sampling_planner_stage));
 
-
-        // Move To allows us to move a planning group to a pre-defined or specified RobotState : pre-defined states can be found in the SRDF
+        // 6. Move To allows us to move a planning group to a pre-defined or specified RobotState : pre-defined states can be found in the SRDF
         move_to_ready_stage = std::make_unique<moveit::task_constructor::stages::MoveTo>("MoveTo predefined position (ready pose)", sampling_planner);
             move_to_ready_stage->setGroup(arm_group_name);
             move_to_ready_stage->setGoal("ready");
-            task.add(std::move(move_to_ready_stage));
+        task.add(std::move(move_to_ready_stage));
 
-        // // Move back to initial state
-        // auto return_stage = std::make_unique<moveit::task_constructor::stages::Connect>("move to start",
-        //         moveit::task_constructor::stages::Connect::GroupPlannerVector{ { arm_group_name, sampling_planner } });
-        //     return_stage->setTimeout(15.0);
-        //     return_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT);
-        //     task.add(std::move(return_stage));
-
-        
-        // //Final fixed State
-        // auto fixed = std::make_unique<moveit::task_constructor::stages::FixedState>("final state");
-        //     auto scene = std::make_shared<planning_scene::PlanningScene>(task.getRobotModel());
-        //     auto& state = scene->getCurrentStateNonConst();
-        //     // state.setToDefaultValues();  // initialize state
-        //     state.setToDefaultValues(state.getJointModelGroup(arm_group_name), "ready");
-        //     // state.setToDefaultValues(state.getJointModelGroup("right_arm"), "home");
-        //     state.update();
-        //     fixed->setState(scene);
-        //     task.add(std::move(fixed));
 
         return task;
     }
@@ -224,101 +202,95 @@ class CustomMtcPipeline : public rclcpp::Node {
 
 
     moveit::task_constructor::Task mergerTask(){
-            //Relevant groups and frames
+        //Relevant groups and frames
         const auto& arm_group_name = "panda_arm";
         const auto& hand_frame = "panda_hand";
         const auto& hand_group_name = "hand";
 
-
         // Initialize the task
         moveit::task_constructor::Task task;
-        task.setName("Sample MoveTo task");
+        task.setName("Sample Merger task");
         
-        
-        //add propoerties : These are like variables we can add to the task, can be anything. Some stages expect some properties to be given, such as 'group' for moveRelative
+        //Add propoerties if needed
         task.setProperty("group", arm_group_name);
         task.setProperty("eef", hand_group_name);
         task.setProperty("ik_frame", hand_frame);
 
-    
+        //Load robot model
         task.loadRobotModel(shared_from_this());
 
         // Define Planners
         auto cartesian_planner = std::make_shared<moveit::task_constructor::solvers::CartesianPath>();
-        cartesian_planner->setMaxVelocityScalingFactor(1.0);
-        cartesian_planner->setMaxAccelerationScalingFactor(1.0);
-        cartesian_planner->setStepSize(.005);
+        // cartesian_planner->setMaxVelocityScalingFactor(1.0);
+        // cartesian_planner->setMaxAccelerationScalingFactor(1.0);
+        // cartesian_planner->setStepSize(.005);
 
         auto interpolation_planner = std::make_shared<moveit::task_constructor::solvers::JointInterpolationPlanner>();
         auto sampling_planner = std::make_shared<moveit::task_constructor::solvers::PipelinePlanner>(shared_from_this());
         sampling_planner->setProperty("goal_joint_tolerance", 1e-5); // If this is large then we get an error - that planned trajectory is too far from the goal etc
 
-
-
         // Current stage : This is the current state of the robot and scene - this is a generator stage
         auto current_stage = std::make_unique<moveit::task_constructor::stages::CurrentState>("current");
-            task.add(std::move(current_stage));
-            // Pointer to the currrent state
-            moveit::task_constructor::Stage* current_state_ptr = current_stage.get(); 
-
-
+        task.add(std::move(current_stage));
+       
         // MoveTo stage : This moves the the planning group to the specified predefined joined state defined in the SRDF file
-            auto stage_open_hand =  std::make_unique<moveit::task_constructor::stages::MoveTo>("open hand", interpolation_planner);
+        auto stage_open_hand =  std::make_unique<moveit::task_constructor::stages::MoveTo>("open hand", interpolation_planner);
             stage_open_hand->setGroup(hand_group_name);
             stage_open_hand->setGoal("open");
-            task.add(std::move(stage_open_hand));
+        task.add(std::move(stage_open_hand));
 
-        moveit::task_constructor::Stage* attach_object_stage = nullptr;  // Forward attach_object_stage to place pose generator
-
-        // Merger Block example : Merger is a parallel block that allows seperate planning for two independent planning groups simultaneously
-            auto merger = std::make_unique<moveit::task_constructor::Merger>("move arm and close gripper");
-            {
+        // Merger is an example of a parallel container : Where we can have simultaneous planning of two independent planning groups (Gripper, Robot Arm)
+        auto merger = std::make_unique<moveit::task_constructor::Merger>("move arm and close gripper");
+        {
+                // Expose properties of chioce to the container and the stages within it
                 task.properties().exposeTo(merger->properties(), { "eef", "group", "ik_frame" });
-                // merger->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT,{ "eef", "group", "ik_frame" });
 
 
                 // MoveRelative stage moves the robot in the direction specified using a specified planner
-                auto back_approach = std::make_unique<moveit::task_constructor::stages::MoveRelative>("Approach", cartesian_planner);
-
+                auto back_approach = std::make_unique<moveit::task_constructor::stages::MoveRelative>("back1", cartesian_planner);
                     back_approach->properties().set("marker_ns", "approach_object");
                     back_approach->properties().set("link", hand_frame);
                     back_approach->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT, { "group" });
-                    back_approach->setMinMaxDistance(0.1, 0.15);
+                    back_approach->setMinMaxDistance(0.01, 0.3);
 
                     geometry_msgs::msg::Vector3Stamped vec;
                     vec.header.frame_id = hand_frame;
-                    vec.vector.x = -1.5;
+                    vec.vector.x = -0.15;
                     back_approach->setDirection(vec);
-                    merger->add(std::move(back_approach));
+                merger->add(std::move(back_approach));
 
                 // MoveTo stage to move the gripper to open position
-                auto open_hand = std::make_unique<moveit::task_constructor::stages::MoveTo>("open hand", interpolation_planner);
+                auto open_hand = std::make_unique<moveit::task_constructor::stages::MoveTo>("close hand", interpolation_planner);
                     open_hand->setGroup(hand_group_name);
-                    open_hand->setGoal("open");
-                    merger->add(std::move(open_hand));
-            }
-            task.add(std::move(merger));
+                    open_hand->setGoal("close");
+                merger->add(std::move(open_hand));
+        }
+        task.add(std::move(merger));
 
+         // MoveTo stage : This moves the the planning group to the specified predefined joined state defined in the SRDF file
+        stage_open_hand =  std::make_unique<moveit::task_constructor::stages::MoveTo>("open hand", interpolation_planner);
+            stage_open_hand->setGroup(hand_group_name);
+            stage_open_hand->setGoal("open");
+        task.add(std::move(stage_open_hand));
 
-        //Now moving each planning group independenatly to see the diffeence without parallel execution
-        
+        // Now moving each planning group independenatly to see the diffeence without parallel execution
         // MoveRelatvie stage
-            auto front_approach = std::make_unique<moveit::task_constructor::stages::MoveRelative>("Approach", cartesian_planner);
-            front_approach->properties().set("marker_ns", "approach_object");
-            front_approach->properties().set("link", hand_frame);
-            front_approach->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT, { "group" });
-            front_approach->setMinMaxDistance(0.1, 0.15);
+        auto back_move_stage = std::make_unique<moveit::task_constructor::stages::MoveRelative>("back2", cartesian_planner);
+            back_move_stage->properties().set("marker_ns", "approach_object");
+            back_move_stage->properties().set("link", hand_frame);
+            back_move_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT, { "group" });
+            back_move_stage->setMinMaxDistance(0.01, 0.3);
 
-        // Set hand forward direction
-        geometry_msgs::msg::Vector3Stamped vec;
-        vec.header.frame_id = hand_frame;
-        vec.vector.x = 1.5;
-        front_approach->setDirection(vec);
-        task.add(std::move(front_approach));
+            // Set hand forward direction
+            geometry_msgs::msg::Vector3Stamped vec;
+            vec.header.frame_id = hand_frame;
+            vec.vector.x = -0.15;
+            back_move_stage->setDirection(vec);
+        task.add(std::move(back_move_stage));
 
         auto open_hand = std::make_unique<moveit::task_constructor::stages::MoveTo>("close hand", interpolation_planner);
-        open_hand->setGroup(hand_group_name);
-        open_hand->setGoal("close");
+            open_hand->setGroup(hand_group_name);
+            open_hand->setGoal("close");
         task.add(std::move(open_hand));
 
         return task;
@@ -326,12 +298,100 @@ class CustomMtcPipeline : public rclcpp::Node {
 
 
 
+    moveit::task_constructor::Task alternativesTask(){
+
+        //Relevant groups and frames
+        const auto& arm_group_name = "panda_arm";
+        const auto& hand_frame = "panda_hand";
+        const auto& hand_group_name = "hand";
+
+        // Initialize the task
+        moveit::task_constructor::Task task;
+        task.setName("Sample alternatvies task");
+        
+        //Add propoerties if needed
+        task.setProperty("group", arm_group_name);
+        task.setProperty("eef", hand_group_name);
+        task.setProperty("ik_frame", hand_frame);
+
+        //Load robot model
+        task.loadRobotModel(shared_from_this());
+
+        // Define Planners
+        auto cartesian_planner = std::make_shared<moveit::task_constructor::solvers::CartesianPath>();
+        // cartesian_planner->setMaxVelocityScalingFactor(1.0);
+        // cartesian_planner->setMaxAccelerationScalingFactor(1.0);
+        // cartesian_planner->setStepSize(.005);
+
+        auto interpolation_planner = std::make_shared<moveit::task_constructor::solvers::JointInterpolationPlanner>();
+        auto sampling_planner = std::make_shared<moveit::task_constructor::solvers::PipelinePlanner>(shared_from_this());
+        sampling_planner->setProperty("goal_joint_tolerance", 1e-5); // If this is large then we get an error - that planned trajectory is too far from the goal etc
+
+        // Current stage : This is the current state of the robot and scene - this is a generator stage
+        auto current_stage = std::make_unique<moveit::task_constructor::stages::CurrentState>("current");
+        task.add(std::move(current_stage));
+
+        auto move_relative_with_sampling_planner_stage =  std::make_unique<moveit::task_constructor::stages::MoveRelative>("MoveRelative with sampling planner", cartesian_planner );
+            //set properties
+            move_relative_with_sampling_planner_stage->properties().set("marker_ns", "approach_object");
+            move_relative_with_sampling_planner_stage->properties().set("link", hand_frame);
+            move_relative_with_sampling_planner_stage->setMinMaxDistance(0.01, 0.3);
+            move_relative_with_sampling_planner_stage->setTimeout(10);
+            // Inherent properties of chioce from parent stage/task
+            move_relative_with_sampling_planner_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT, { "group" });
+
+            // move in a specified transformation wrt to a given frame
+            geometry_msgs::msg::Vector3Stamped vec_sampling;
+            vec_sampling.header.frame_id = hand_frame;
+            vec_sampling.vector.x = -1;
+            vec_sampling.vector.z = 0.5;
+            move_relative_with_sampling_planner_stage->setDirection(vec_sampling);
+        task.add(std::move(move_relative_with_sampling_planner_stage));
+
+
+        // Alternatives : A parallel container that takes mutliple stages and computes them in parallel
+        // can select a solution based on the different computation of cost here
+        auto alternatives{ std::make_unique<moveit::task_constructor::Alternatives>("move back to ready pose") };
+        {
+            auto move_to_ready_stage = std::make_unique<moveit::task_constructor::stages::MoveTo>("MoveTo (ready pose) : sampling planner", sampling_planner);
+                move_to_ready_stage->setGroup(arm_group_name);
+                move_to_ready_stage->setGoal("ready"); // SRDF has a 'ready' state defined
+                move_to_ready_stage->setCostTerm(std::make_unique<moveit::task_constructor::cost::PathLength>());
+            alternatives->add(std::move(move_to_ready_stage));
+        }
+        {
+           auto move_to_ready_stage = std::make_unique<moveit::task_constructor::stages::MoveTo>("MoveTo (ready pose) : Cartesian planner", sampling_planner);
+                move_to_ready_stage->setGroup(arm_group_name);
+                move_to_ready_stage->setGoal("extended"); // SRDF has a 'ready' state defined
+                move_to_ready_stage->setCostTerm(std::make_unique<moveit::task_constructor::cost::TrajectoryDuration>());
+            alternatives->add(std::move(move_to_ready_stage));
+        }
+        task.add(std::move(alternatives));
+        return task;
+    }
+
+
+
+
     void doTask(moveit::task_constructor::Task task){
-        // moveit::task_constructor::Task task = moveToTask();
-        task.init();
-        task.plan(10);
+
+        try{
+            task.init();
+        }
+        catch (moveit::task_constructor::InitStageException& e){
+            RCLCPP_ERROR_STREAM(LOGGER, e);
+            return;
+        }
+        if (!task.plan(100)){
+            RCLCPP_ERROR_STREAM(LOGGER, "Task planning failed");
+            return;
+        }
         task.introspection().publishSolution(*task.solutions().front());
         auto result = task.execute(*task.solutions().front());
+        if (result.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS){
+            RCLCPP_ERROR_STREAM(LOGGER, "Task execution failed");
+            return;
+        }
     }
 
 };
@@ -347,10 +407,18 @@ int main(int argc, char** argv){
     std::shared_ptr<CustomMtcPipeline> mtc_node = std::make_shared<CustomMtcPipeline>(options);
     mtc_node->addTable();
     mtc_node->addCylinder();
-    mtc_node->doTask(mtc_node->moveRelativeStageTask());
+    // mtc_node->doTask(mtc_node->moveRelativeStageTask());
     // mtc_node->doTask(mtc_node->mergerTask());
+    rclcpp::executors::MultiThreadedExecutor executor;
+    auto spin_thread = std::make_unique<std::thread>([&executor, &mtc_node]() {
+        executor.add_node(mtc_node->getNodeBaseInterface());
+        executor.spin();
+        executor.remove_node(mtc_node->getNodeBaseInterface());
+    });
+    mtc_node->doTask(mtc_node->alternativesTask());
 
-    rclcpp::spin(mtc_node);
+    
+    spin_thread->join();
     rclcpp::shutdown();
 
 }

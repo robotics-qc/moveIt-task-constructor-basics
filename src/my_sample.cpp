@@ -215,6 +215,8 @@ void My_tutorial::addCylinder()
 
 void My_tutorial::doTask()
 {
+  RCLCPP_ERROR_STREAM(LOGGER, "EXECUTING TASK");
+
   task_ = setSceneTask();//task;
   try{
     task_.init();
@@ -234,7 +236,7 @@ void My_tutorial::doTask()
     return;
   }
 
-  task_ = cylinderTask();//task;
+  task_ = alternativesTask();//cylinderTask();//task;
   try{
     task_.init();
   }
@@ -1106,8 +1108,31 @@ mtc::Task My_tutorial::alternativesTask()
     }
 
     task.add(std::move(grasp));
-
   }
+  // Alternatives : A parallel container that takes mutliple stages and computes them in parallel
+  //       can select a solution based on the different computation of cost here
+  // auto alternatives1{ std::make_unique<mtc::Alternatives>("move back to ready pose") };
+  // {
+  //     auto move_to_ready_stage = std::make_unique<mtc::stages::MoveTo>("MoveTo (ready pose) : sampling planner", sampling_planner);
+  //         move_to_ready_stage->setGroup(arm_group_name);
+  //         move_to_ready_stage->setTimeout(10);
+  //         move_to_ready_stage->setGoal("ready"); // SRDF has a 'ready' state defined
+  //         // move_to_ready_stage->setCostTerm(std::make_unique<mtc::cost::TrajectoryDuration>());
+  //     alternatives1->add(std::move(move_to_ready_stage));
+  // }
+  // {
+  //     auto move_to_ready_stage = std::make_unique<mtc::stages::MoveTo>("MoveTo (ready pose) : Cartesian planner", sampling_planner);
+  //         move_to_ready_stage->setGroup(arm_group_name);
+  //         move_to_ready_stage->setGoal("extended"); // SRDF has a 'ready' state defined
+  //         move_to_ready_stage->setTimeout(10);
+  //         // move_to_ready_stage->setCostTerm(std::make_unique<mtc::cost::PathLength>());
+  //     alternatives1->add(std::move(move_to_ready_stage));
+  // }
+  // task.add(std::move(alternatives1));
+
+
+
+
   return task;
 }
 
@@ -1384,7 +1409,7 @@ int main(int argc, char** argv)
   mtc_task_node->doTask();
   mtc_task_node->addCylinder();
 
-  mtc_task_node->doTask();
+  // mtc_task_node->doTask();
 
   spin_thread->join();
   rclcpp::shutdown();
