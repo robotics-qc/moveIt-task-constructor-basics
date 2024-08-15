@@ -1,13 +1,10 @@
 #include <rclcpp/rclcpp.hpp>
-
-
 //Headers for the planning scene interface, collision objects, primitives etc
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
 #include <moveit/task_constructor/task.h>
 #include <moveit/task_constructor/stages.h>
 #include <moveit/task_constructor/solvers.h>
 #include <moveit/task_constructor/cost_terms.h>
-
 #include <moveit/planning_scene/planning_scene.h>
 
 static const rclcpp::Logger LOGGER = rclcpp::get_logger("my_example");
@@ -79,6 +76,34 @@ class CustomMtcPipeline : public rclcpp::Node {
 
     }
 
+    void addBox(){
+        // Initialize the Planning Scene Interface
+    moveit::planning_interface::PlanningSceneInterface psi;
+  
+    // BOX
+    moveit_msgs::msg::CollisionObject object;
+    object.id = "box";
+    object.header.frame_id = "world";
+    object.primitives.resize(1);
+
+    // Define the size of the box in meters
+    object.primitives[0].type = shape_msgs::msg::SolidPrimitive::BOX;//object.primitives[0].BOX;
+    object.primitives[0].dimensions.resize(3);
+    object.primitives[0].dimensions[object.primitives[0].BOX_X] = 0.05;
+    object.primitives[0].dimensions[object.primitives[0].BOX_Y] = 0.05;
+    object.primitives[0].dimensions[object.primitives[0].BOX_Z] = 0.05;
+
+    object.primitive_poses.resize(1);
+    object.primitive_poses[0].position.x = 0.5;
+    object.primitive_poses[0].position.y = -0.2;
+    object.primitive_poses[0].position.z = 0.2;//-0.026;
+    object.primitive_poses[0].orientation.w = 1.0;
+    object.operation = object.ADD;
+
+    // Apply the table collision object
+    psi.applyCollisionObject(object);
+
+    }
 
 // TASKS DEFINITION
 
@@ -401,7 +426,34 @@ class CustomMtcPipeline : public rclcpp::Node {
         return task;
     }
 
-    moveit::task_constructor::Task pickObjectTask(std::string object){
+    /**  Task flow :
+    *     1. Current stage
+    *     2. MoveTo arm to ready position
+    *     3. MoveTo open gripper
+    *     4. Connect
+    *     5. Serial container : Grasp and lift object
+    *           a. MoveRelative (pre-grasp approach)
+    *               b. Generate Grasp Pose
+    *               c. ComputeIK wrapper
+    *           d. ModifyPlanningScene to allow collision with object
+    *           e. MoveTo to close gripper
+    *           f. ModifyPlanningScene to attach object frame to hand frame
+    *           g. MoveRelative to lift robot arm  + object upwards
+    *     6. Connect
+    *     7. Serial Container : Place object and retreat
+    *               a. GeneratePlacePose at desired pose
+    *               b. ComputeIK wrapper
+    *           c. MoveTo open gripper
+    *           d. ModifyPlanningScene to forbid collision with object and gripper
+    *           e. ModifyPlanningScene to detach frame of object with gripper
+    *           f. MoveRelative to retreat from the object
+    *     8. MoveTo arm to ready pose
+    *   
+    *   Observations :
+    *      Notice how the planning happens from the generators - not in linear order. Within a Serial container, the planning begins at the Generate(Grasp/place) stage - and outside it begins at current stage
+    *      and since each generate provides a specific robot location/configuration, the connect stage is used to plan the path of a robot between two defined configurations
+    */
+    moveit::task_constructor::Task pickObjectTask(std::string object, geometry_msgs::msg::PoseStamped target_pose_msg){
         // Relevant groups and frames
         const auto& arm_group_name = "panda_arm";
         const auto& hand_frame = "panda_hand";
@@ -410,7 +462,7 @@ class CustomMtcPipeline : public rclcpp::Node {
 
         // Initialize the task
         moveit::task_constructor::Task task;
-        task.setName("pick object task : "+ object);
+        task.setName("pick object task : " + object);
         
         
         // Add propoerties : These are like variables we can add to the task, can be anything. Some stages expect some properties to be given, such as 'group' for moveRelative
@@ -559,10 +611,10 @@ class CustomMtcPipeline : public rclcpp::Node {
                 place_pose_stage->properties().set("marker_ns", "place_pose");
                 place_pose_stage->setObject(object);
 
-                geometry_msgs::msg::PoseStamped target_pose_msg;
-                target_pose_msg.header.frame_id = object;
-                target_pose_msg.pose.position.y = 0.5;
-                target_pose_msg.pose.orientation.w = 1.0;
+                // geometry_msgs::msg::PoseStamped target_pose_msg;
+                // target_pose_msg.header.frame_id = object;
+                // target_pose_msg.pose.position.y = 0.5;
+                // target_pose_msg.pose.orientation.w = 1.0;
                 place_pose_stage->setPose(target_pose_msg);
                 place_pose_stage->setMonitoredStage(attach_object_stage_pointer);  // Hook into attach_object_stage
 
@@ -619,8 +671,6 @@ class CustomMtcPipeline : public rclcpp::Node {
 
 
 
-
-
     void doTask(moveit::task_constructor::Task task){
 
         try{
@@ -635,17 +685,16 @@ class CustomMtcPipeline : public rclcpp::Node {
             return;
         }
         
-        // task.introspection().publishSolution(*task.solutions().front());
-        task.introspection().publishAllSolutions();
+        task.introspection().publishSolution(*task.solutions().front());
+        // task.introspection().publishAllSolutions(false);
         
-        // auto result = task.execute(*task.solutions().front());
-        // if (result.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS){
-        //     RCLCPP_ERROR_STREAM(LOGGER, "Task execution failed");
-        //     return;
-        // }
+        auto result = task.execute(*task.solutions().front());
+        if (result.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS){
+            RCLCPP_ERROR_STREAM(LOGGER, "Task execution failed");
+            return;
+        }
     }
 };
-
 
 int main(int argc, char** argv){
     rclcpp::init(argc, argv);
@@ -657,16 +706,36 @@ int main(int argc, char** argv){
     std::shared_ptr<CustomMtcPipeline> mtc_node = std::make_shared<CustomMtcPipeline>(options);
     mtc_node->addTable();
     mtc_node->addCylinder();
-    // mtc_node->doTask(mtc_node->moveRelativeStageTask());
+    mtc_node->addBox();
     rclcpp::executors::MultiThreadedExecutor executor;
     auto spin_thread = std::make_unique<std::thread>([&executor, &mtc_node]() {
         executor.add_node(mtc_node->getNodeBaseInterface());
         executor.spin();
         executor.remove_node(mtc_node->getNodeBaseInterface());
     });
-    mtc_node->doTask(mtc_node->alternativesTask());
+
+    // mtc_node->doTask(mtc_node->moveRelativeStageTask());
+    // mtc_node->doTask(mtc_node->alternativesTask());
     // mtc_node->doTask(mtc_node->mergerTask());
-    // mtc_node->doTask(mtc_node->pickObjectTask("cylinder"));
+
+
+    std::string cylinder="cylinder";
+    geometry_msgs::msg::PoseStamped target_cylinder_pose;
+    target_cylinder_pose.header.frame_id = cylinder;
+    target_cylinder_pose.pose.position.y = 0.5;
+    target_cylinder_pose.pose.position.z = 0.2;
+    target_cylinder_pose.pose.orientation.w = 1.0;
+    mtc_node->doTask(mtc_node->pickObjectTask(cylinder,target_cylinder_pose));
+
+
+    std::string box="box";
+    geometry_msgs::msg::PoseStamped target_box_pose;
+    target_box_pose.header.frame_id = box;
+    target_box_pose.pose.position.y = 0.5;
+    target_box_pose.pose.position.z =  -0.1;
+    target_box_pose.pose.orientation.w = 1.0;
+    mtc_node->doTask(mtc_node->pickObjectTask(box,target_box_pose));
+
 
     
     spin_thread->join();
