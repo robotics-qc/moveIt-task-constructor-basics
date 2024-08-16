@@ -670,6 +670,138 @@ class CustomMtcPipeline : public rclcpp::Node {
     }
 
 
+    moveit::task_constructor::Task fallbackTask(){
+
+        //Relevant groups and frames
+        const auto& arm_group_name = "panda_arm";
+        const auto& hand_frame = "panda_hand";
+        const auto& hand_group_name = "hand";
+
+        // Initialize the task
+        moveit::task_constructor::Task task;
+        task.setName("Sample Merger task");
+        
+        //Add propoerties if needed
+        task.setProperty("group", arm_group_name);
+        task.setProperty("eef", hand_group_name);
+        task.setProperty("ik_frame", hand_frame);
+
+        //Load robot model
+        task.loadRobotModel(shared_from_this());
+
+        // Define Planners
+
+
+        // This is another planner that does not use the default 'ompl' planner
+        auto pilz_planner = std::make_shared<moveit::task_constructor::solvers::PipelinePlanner>(shared_from_this(),"pilz_industrial_motion_planner");
+        pilz_planner->setPlannerId("PTP"); // "LIN" -> Cartiesian trajectory, "CIRC" -> Arc like trajectory
+
+
+        auto cartesian_planner = std::make_shared<moveit::task_constructor::solvers::CartesianPath>();
+        auto interpolation_planner = std::make_shared<moveit::task_constructor::solvers::JointInterpolationPlanner>();
+        auto sampling_planner = std::make_shared<moveit::task_constructor::solvers::PipelinePlanner>(shared_from_this());
+        sampling_planner->setProperty("goal_joint_tolerance", 1e-5); // If this is large then we get an error - that planned trajectory is too far from the goal etc
+
+        // 1. Current stage : This is the current state of the robot and scene - this is a generator stage
+        auto current_stage = std::make_unique<moveit::task_constructor::stages::CurrentState>("current");
+        task.add(std::move(current_stage));
+       
+        // 2. Move to Ready position
+        auto move_to_ready_stage = std::make_unique<moveit::task_constructor::stages::MoveTo>("MoveTo predefined position (ready pose)", sampling_planner);
+            move_to_ready_stage->setGroup(arm_group_name);
+            move_to_ready_stage->setGoal("ready"); 
+        task.add(std::move(move_to_ready_stage));
+
+        // Fallback Stage: This stage is a paralell container where if a stage fails, then the sext stage in the container is executed - otherwise execution continues
+        // 3. Fallback 1 : move back 0.2 m
+        auto fallbacks = std::make_unique<moveit::task_constructor::Fallbacks>("move back 0.2");
+        {
+            task.properties().exposeTo(fallbacks->properties(), { "eef", "group", "ik_frame" });
+          
+            auto add_to_fallbacks{ [&](auto& solver, auto& name) {
+                
+                auto move_relative_stage =  std::make_unique<moveit::task_constructor::stages::MoveRelative>(name, solver );
+                    //set properties
+                    move_relative_stage->properties().set("marker_ns", "approach_object");
+                    move_relative_stage->properties().set("link", hand_frame);
+                    move_relative_stage->setMinMaxDistance(0.1, 0.15);
+                    move_relative_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT, { "group" });
+
+                    // move in a specified transformation wrt to a given frame
+                    geometry_msgs::msg::Vector3Stamped vec_sampling;
+                    vec_sampling.header.frame_id = hand_frame;
+                    vec_sampling.vector.x = -1;
+                    move_relative_stage->setDirection(vec_sampling);
+                    fallbacks->add(std::move(move_relative_stage));
+            }};
+            add_to_fallbacks(cartesian_planner, "Cartesian path");
+            add_to_fallbacks(pilz_planner, "PTP path");
+            add_to_fallbacks(sampling_planner, "sampling path");
+
+        }
+        task.add(std::move(fallbacks));
+
+
+        // 4. Move to Ready position
+        move_to_ready_stage = std::make_unique<moveit::task_constructor::stages::MoveTo>("MoveTo predefined position (ready pose)", sampling_planner);
+            move_to_ready_stage->setGroup(arm_group_name);
+            move_to_ready_stage->setGoal("ready"); 
+        task.add(std::move(move_to_ready_stage));
+
+
+        // 5. Fallback 2 : Move back 0.5m
+        fallbacks = std::make_unique<moveit::task_constructor::Fallbacks>("move back 0.5");
+        {
+            task.properties().exposeTo(fallbacks->properties(), { "eef", "group", "ik_frame" });
+          
+            auto add_to_fallbacks{ [&](auto& solver, auto& name) {
+                auto move_relative_stage =  std::make_unique<moveit::task_constructor::stages::MoveRelative>(name, solver );
+                    //set properties
+                    move_relative_stage->properties().set("marker_ns", "approach_object");
+                    move_relative_stage->properties().set("link", hand_frame);
+                    move_relative_stage->setMinMaxDistance(0.5, 0.5);
+                    move_relative_stage->properties().configureInitFrom(moveit::task_constructor::Stage::PARENT, { "group" });
+                    geometry_msgs::msg::Vector3Stamped vec_sampling;
+                    vec_sampling.header.frame_id = hand_frame;
+                    vec_sampling.vector.x = -1;
+                    move_relative_stage->setDirection(vec_sampling);
+                    fallbacks->add(std::move(move_relative_stage));
+            }};
+            add_to_fallbacks(cartesian_planner, "Cartesian path");
+            add_to_fallbacks(pilz_planner, "PTP path");
+            add_to_fallbacks(sampling_planner, "sampling path");
+
+        }
+        task.add(std::move(fallbacks));
+
+        // 6. Fallback 3 : move to extended position
+        fallbacks = std::make_unique<moveit::task_constructor::Fallbacks>("move to extended");
+        {
+          task.properties().exposeTo(fallbacks->properties(), { "eef", "group", "ik_frame" });
+          
+          auto add_to_fallbacks{ [&](auto& solver, auto& name) {
+              auto move_to = std::make_unique<moveit::task_constructor::stages::MoveTo>(name, solver);
+              // move_to->properties().configureInitFrom(mtc::Stage::PARENT, { "group" });
+              move_to->setGroup(arm_group_name);
+              move_to->setGoal("extended");
+              fallbacks->add(std::move(move_to));
+          } };
+          add_to_fallbacks(cartesian_planner, "Cartesian path");
+          add_to_fallbacks(pilz_planner, "PTP path");
+          add_to_fallbacks(sampling_planner, "sampling path");
+          task.add(std::move(fallbacks));
+        }
+
+        // 7. Move to Ready position
+        move_to_ready_stage = std::make_unique<moveit::task_constructor::stages::MoveTo>("MoveTo predefined position (ready pose)", sampling_planner);
+            move_to_ready_stage->setGroup(arm_group_name);
+            move_to_ready_stage->setGoal("ready"); 
+        task.add(std::move(move_to_ready_stage));
+
+        return task;
+        
+    }
+
 
     void doTask(moveit::task_constructor::Task task){
 
@@ -685,8 +817,8 @@ class CustomMtcPipeline : public rclcpp::Node {
             return;
         }
         
-        task.introspection().publishSolution(*task.solutions().front());
-        // task.introspection().publishAllSolutions(false);
+        // task.introspection().publishSolution(*task.solutions().front());
+        task.introspection().publishAllSolutions();
         
         auto result = task.execute(*task.solutions().front());
         if (result.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS){
@@ -717,6 +849,7 @@ int main(int argc, char** argv){
     // mtc_node->doTask(mtc_node->moveRelativeStageTask());
     // mtc_node->doTask(mtc_node->alternativesTask());
     // mtc_node->doTask(mtc_node->mergerTask());
+    mtc_node->doTask(mtc_node->fallbackTask());
 
 
     std::string cylinder="cylinder";
@@ -725,7 +858,7 @@ int main(int argc, char** argv){
     target_cylinder_pose.pose.position.y = 0.5;
     target_cylinder_pose.pose.position.z = 0.2;
     target_cylinder_pose.pose.orientation.w = 1.0;
-    mtc_node->doTask(mtc_node->pickObjectTask(cylinder,target_cylinder_pose));
+    // mtc_node->doTask(mtc_node->pickObjectTask(cylinder,target_cylinder_pose));
 
 
     std::string box="box";
@@ -734,8 +867,7 @@ int main(int argc, char** argv){
     target_box_pose.pose.position.y = 0.5;
     target_box_pose.pose.position.z =  -0.1;
     target_box_pose.pose.orientation.w = 1.0;
-    mtc_node->doTask(mtc_node->pickObjectTask(box,target_box_pose));
-
+    // mtc_node->doTask(mtc_node->pickObjectTask(box,target_box_pose));
 
     
     spin_thread->join();
